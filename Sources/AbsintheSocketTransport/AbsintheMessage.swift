@@ -1,5 +1,6 @@
 import os
 import Apollo
+import ApolloAPI
 import Foundation
 import SwiftPhoenixClient
 
@@ -21,9 +22,9 @@ enum AbsintheMessage {
    */
   static func fromOperation<Operation: GraphQLOperation>(_ op: Operation) -> [String: Any] {
     var payload: [String: Any]
-    payload = [ "query": op.queryDocument ]
+      payload = [ "query": Operation.operationDocument ]
 
-    if let variables = op.variables {
+    if let variables = op.__variables {
       payload += [ "variables": variables ]
     }
 
@@ -57,13 +58,13 @@ enum AbsintheMessage {
     operation: Operation,
     message: Message
   ) -> Result<GraphQLResult<Operation.Data>, Error> {
-    guard let response = message.payload["response"] as? [String: Any]
+    guard let response = message.payload["response"] as? [String: AnyHashable]
     else {
       return .failure(AbsintheError(kind: .parseError, payload: message.payload))
     }
 
     do {
-      return try .success(GraphQLResponse(operation: operation, body: response).parseResultFast())
+        return try .success(GraphQLResponse(operation: operation, body: response).parseResultFast())
     } catch {
       return .failure(error)
     }
@@ -103,7 +104,7 @@ enum AbsintheMessage {
     operation: Operation,
     message: Message
   ) -> Result<GraphQLResult<Operation.Data>, Error> {
-    guard let response = message.payload["result"] as? [String: Any]
+    guard let response = message.payload["result"] as? [String: AnyHashable]
     else {
       return .failure(AbsintheError(kind: .parseError, payload: message.payload))
     }
