@@ -1,5 +1,6 @@
 import os
 import Apollo
+import ApolloAPI
 import Foundation
 import SwiftPhoenixClient
 
@@ -55,7 +56,7 @@ public class AbsintheSocketTransport {
     closedParams: @escaping PayloadClosure = { return [:] },
     connectOnInit: Bool = true
   ) {
-    self.socket = SwiftPhoenixClient.Socket.init(endpoint, paramsClosure: closedParams)
+    self.socket = SwiftPhoenixClient.Socket(endpoint, paramsClosure: closedParams)
     self.channel = socket.channel(Topics.absinthe)
 
     self.socket.delegateOnOpen(to: self) { target in target.socketDidConnect() }
@@ -174,43 +175,45 @@ public class AbsintheSocketTransport {
 }
 
 extension AbsintheSocketTransport: NetworkTransport {
-  public func send<Operation>(operation: Operation, cachePolicy: CachePolicy, contextIdentifier: UUID?, callbackQueue: DispatchQueue, completionHandler: @escaping (Result<GraphQLResult<Operation.Data>, Error>) -> Void) -> Cancellable where Operation : GraphQLOperation {
-    var cancellable: Cancellable
-    var sendOperation: () -> Void
+    
+    public func send<Operation>(operation: Operation, cachePolicy: Apollo.CachePolicy, contextIdentifier: UUID?, context: Apollo.RequestContext?, callbackQueue: DispatchQueue, completionHandler: @escaping (Result<Apollo.GraphQLResult<Operation.Data>, Error>) -> Void) -> Apollo.Cancellable where Operation : ApolloAPI.GraphQLOperation {
+        
+        var cancellable: Cancellable
+        var sendOperation: () -> Void
 
-    // Convenience for calling the completion handler.
-    func completionAsync(_ result: Result<GraphQLResult<Operation.Data>, Error>) {
-      callbackQueue.async {
-        completionHandler(result)
-      }
+        // Convenience for calling the completion handler.
+        func completionAsync(_ result: Result<GraphQLResult<Operation.Data>, Error>) {
+          callbackQueue.async {
+            completionHandler(result)
+          }
+        }
+
+          switch Operation.operationType {
+        case .query,
+             .mutation:
+          cancellable = EmptyCancellable()
+
+          sendOperation = { [weak self] in
+            self?.send(operation: operation, completion: completionAsync)
+          }
+
+        case .subscription:
+          let id = socket.makeRef()
+          cancellable = AbsintheSubscription(self, id)
+
+          sendOperation = { [weak self] in
+            self?.subscribe(operation: operation, subscriptionId: id, completion: completionAsync)
+          }
+        }
+
+        if self.channel.isJoined {
+          sendOperation()
+        } else {
+          self.outgoing.append(sendOperation)
+        }
+
+        return cancellable
     }
-
-    switch operation.operationType {
-    case .query,
-         .mutation:
-      cancellable = EmptyCancellable()
-
-      sendOperation = { [weak self] in
-        self?.send(operation: operation, completion: completionAsync)
-      }
-
-    case .subscription:
-      let id = socket.makeRef()
-      cancellable = AbsintheSubscription(self, id)
-
-      sendOperation = { [weak self] in
-        self?.subscribe(operation: operation, subscriptionId: id, completion: completionAsync)
-      }
-    }
-
-    if self.channel.isJoined {
-      sendOperation()
-    } else {
-      self.outgoing.append(sendOperation)
-    }
-
-    return cancellable
-  }
 
   private func send<Operation>(
     operation: Operation,
