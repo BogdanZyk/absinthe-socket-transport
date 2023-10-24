@@ -20,16 +20,16 @@ enum AbsintheMessage {
    * - parameter op: GraphQLOperation as supplied by Apollo
    * - returns: Outgoing message payload
    */
-  static func fromOperation<Operation: GraphQLOperation>(_ op: Operation) -> [String: Any] {
-    var payload: [String: Any]
-      payload = [ "query": Operation.operationDocument ]
-
-    if let variables = op.__variables {
-      payload += [ "variables": variables ]
+    static func fromOperation<Operation: GraphQLOperation>(_ op: Operation) -> [String: Any] {
+        let queryDocument = Operation.operationDocument.definition?.queryDocument ?? "No operation"
+        var payload: [String: Any]
+        payload = [ "query": queryDocument]
+        if let variables = op.__variables {
+            payload += [ "variables": variables ]
+        }
+        
+        return payload
     }
-
-    return payload
-  }
 
   /**
    * Creates an outgoing message to unsubscribe from the given subscription by `id`.
@@ -78,14 +78,7 @@ enum AbsintheMessage {
    */
   static func parseSubscriptionStart(_ message: Message) -> Result<String, Error> {
     guard
-      message.payload["status"] as? String == "ok"
-    else {
-      return .failure(AbsintheError(kind: .queryError, payload: message.payload))
-    }
-
-    guard
-      let response = message.payload["response"] as? [String: Any],
-      let id = response["subscriptionId"] as? String
+      let id = message.payload["subscriptionId"] as? String
     else {
       return .failure(AbsintheError(kind: .parseError, payload: message.payload))
     }
